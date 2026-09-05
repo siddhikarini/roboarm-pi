@@ -1,0 +1,4 @@
+﻿PyYAML>=6.0
+paho-mqtt>=2.0    # MQTT relay to EC2/IoT Core
+pyserial>=3.5     # USB serial control of the real RoArm
+opencv-python>=4.9   # camera capture + color/grid detection (vision/)

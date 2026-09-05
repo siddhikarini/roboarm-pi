@@ -1,0 +1,288 @@
+# Karini IMTS 2026 - Block Sorting Demo Configuration
+#
+# Every geometric number lives here. Nothing is hardcoded in Python or JS.
+#
+# REAL-ARM config: RoArm-M2-Pro over USB serial, using the arm's OWN inverse
+# kinematics (ik_mode: passthrough). Positions are given in GRID coordinates
+# (col, row) and converted to the arm's XYZ mm frame via grid.transform.
+
+site: booth-roarm
+backend: mqtt_proxy       # sim | roarm | mqtt_proxy
+units: mm
+
+# ---------------------------------------------------------------------------
+# Arm geometry (RoArm-M2-Pro)
+# ---------------------------------------------------------------------------
+arm:
+  model: roarm-m2-pro
+  ik_mode: passthrough      # passthrough = arm does its own IK (send XYZ via
+                            # T:104). analytic = use our link-length model (sim).
+  # Link lengths are only used in analytic (sim) mode. In passthrough mode the
+  # arm's firmware owns kinematics, so these are not relied upon.
+  base_height: 128.0
+  upper_arm: 236.0
+  forearm: 316.0
+  eoat: 110.0
+  measured: false
+  joint_limits:
+    base:     [-180, 180]
+    shoulder: [-115, 115]
+    elbow:    [-135, 135]
+    wrist:    [-180, 180]
+  max_deg_per_sec: 40
+
+connection:
+  # Real RoArm-M2-Pro over USB serial (backend: roarm).
+  transport: serial
+  port: COM6               # Overridable via ROARM_PORT env. Linux: /dev/ttyUSB0
+  baud: 115200
+  boot_wait_s: 5.0         # let the ESP32 finish booting on open
+  move_spd: 0.25           # T:104 XYZ move speed (slow = safe)
+  read_timeout_s: 2.0
+
+  # MQTT broker settings (backend: mqtt_proxy). Used by the EC2 proxy and the
+  # booth laptop_agent.py; both connect OUTBOUND to this broker.
+  #
+  # Local/Mosquitto broker: set host/port, leave use_tls false, optionally
+  # username/password.
+  #
+  # AWS IoT Core: IoT Core authenticates via mutual TLS (X.509 certs), NOT
+  # username/password. Set:
+  #   host:     your account's IoT endpoint, e.g.
+  #             "xxxxxxxxxx-ats.iot.<region>.amazonaws.com"
+  #             (get it via: aws iot describe-endpoint --endpoint-type iot:Data-ATS)
+  #   port:     8883 (TLS), not 1883
+  #   use_tls:  true
+  #
+  # Certs can come from either LOCAL FILES (dev/local testing) or AWS
+  # SECRETS MANAGER (recommended for EC2 -- no cert files ever touch disk
+  # as committed/copied artifacts; rotating creds = updating one secret,
+  # not redeploying files). Only ONE of these two should be set:
+  #
+  #   Local files:
+  #     ca_cert / cert_file / key_file: paths to the Amazon Root CA, your
+  #     device certificate, and its private key (downloaded when you
+  #     create a "Thing" + certificate in the AWS IoT console).
+  #
+  #   Secrets Manager (EC2 needs an IAM role with
+  #   secretsmanager:GetSecretValue on this secret):
+  #     secrets_manager_secret_name: name/ARN of a secret containing JSON
+  #       {"ca_cert": "...", "cert_file": "...", "key_file": "..."} (each
+  #       value is the raw PEM content as a string). Fetched once at
+  #       connect(), written to a temp file (paho-mqtt needs file paths),
+  #       and used from there.
+  #     secrets_manager_region: AWS region the secret lives in.
+  #
+  # You ALSO need an IoT policy attached to the certificate granting
+  # iot:Connect / iot:Publish / iot:Subscribe / iot:Receive on the
+  # robo/cmd, robo/result, robo/state topics -- IoT Core denies everything
+  # by default until a policy explicitly allows it.
+  mqtt:
+    host: a2jmt4rnprymiq-ats.iot.us-east-1.amazonaws.com
+    port: 8883
+    username:
+    password:
+    cmd_timeout_s: 20
+    use_tls: true
+    ca_cert: /home/ubuntu/certs/AmazonRootCA1.pem              # LOCAL FILE path on EC2
+    cert_file: /home/ubuntu/certs/device-certificate.pem.crt   # LOCAL FILE path on EC2
+    key_file: /home/ubuntu/certs/private.pem.key               # LOCAL FILE path on EC2
+    secrets_manager_secret_name:  # set this INSTEAD of ca_cert/cert_file/key_file on EC2
+    secrets_manager_region: us-east-1
+    client_id:            # optional; defaults to ec2-proxy-<pid> if unset.
+                           # IoT Core requires each concurrent connection to
+                           # use a UNIQUE client id -- reusing one disconnects
+                           # the other session.
+    skip_connect_handshake: true  # no live Pi-side agent subscribed yet --
+                           # publish commands (visible in the MQTT test
+                           # client) without blocking/failing waiting for a
+                           # reply that will never come.
+
+# ---------------------------------------------------------------------------
+# Grid -> arm transform (fit from measured points; least squares)
+#   arm_x = ax_col*col + ax_row*row + ax_c
+#   arm_y = ay_col*col + ay_row*row + ay_c
+# Grid is ~7 cols x 8 rows, one cell ~60mm (col) / ~50mm (row measured).
+# Re-fit these if you re-measure the board.
+# ------------
+#---------------------------------------------------------------
+grid:
+  cols: 7
+  rows: 8
+  transform:
+    ax_col: -60.33
+    ax_row: -4.00
+    ax_c:   437.06    # tuned: Red lands ~(300.4,-50.0), i.e. -20mm from the
+    ay_col:  3.42     # -25 test that was slightly too far
+    ay_row: -49.04
+    ay_c:   120.32
+
+
+# ---------------------------------------------------------------------------
+# Workspace envelope - safety boundary in the ARM's real frame (mm).
+# Derived from measured reach: x ~120-420, y ~ +/-170, z table=-122 up to ~260.
+# In passthrough mode, inverse() validates targets against this envelope.
+# ---------------------------------------------------------------------------
+envelope:
+  radius: [110, 440]        # horizontal distance from base axis (hypot(x,y))
+  z: [-135, 260]            # arm Z range: just below table to safe height
+  keep_out_front: 0
+
+# ---------------------------------------------------------------------------
+# Gripper configuration
+# ---------------------------------------------------------------------------
+gripper:
+  open_width: 60.0
+  close_width: 20.0
+  block_grip_width: 38.0
+  actuate_time_s: 1.2       # time to fully open/close (servo travels ~130 deg)
+  # Real RoArm gripper positions in RADIANS. Matches Waveshare's documented
+  # T:106/T:104 't' direction: LOWER t = OPEN, HIGHER t = CLOSED (verified
+  # physically on this unit — an earlier "HIGHER t = OPEN" note here was wrong).
+  # HARD LIMITS: the backend clamps every gripper command to [min_rad, max_rad]
+  # so it can NEVER be driven past this range (prevents the jam-under-screw).
+  #   ~0.5  = fully open (fingers apart)
+  #   ~3.14 = fully closed (fingers together)
+  min_rad: 0.50             # hard lower bound (fully open, do not go below)
+  max_rad: 3.14             # hard upper bound (fully closed)
+  open_rad: 0.60            # OPEN: fingers wide apart (verified ~120-130 deg travel)
+  close_rad: 3.00           # CLOSED: fingers together to grip the duck.
+                            # Higher = tighter (max 3.14). Lower if it crushes.
+  grip_spd: 200             # gripper actuation speed (0 can mean "very slow")
+  grip_acc: 60              # gripper actuation acceleration
+  grip_settle_s: 0.8        # pause AFTER a close/open finishes, before the
+                            # next move (e.g. lift) is allowed to fire --
+                            # lets the grip mechanically settle onto/off the
+                            # block first
+  overload_torque: 150      # (unused now — kept for config compatibility)
+
+# ---------------------------------------------------------------------------
+# Blocks - the ducks on the grid board. Positions in GRID (col, row).
+# ---------------------------------------------------------------------------
+blocks:
+  size: 40.0
+  colors:
+    # 'green' color measured directly via click_sample_color.py against the
+    # LATEST capture -- this camera's exposure/white-balance drifts between
+    # sessions (confirmed: earlier same-block samples read hue~37 (#7ea60a)
+    # and hue~60-61 (#219b26)). Object was swapped for a DIFFERENT green
+    # block; re-sampled fresh with 9 clicks, hue tightly clustered at
+    # 74-75 -- #05a150. If detection breaks again after a fresh capture or
+    # object swap, re-sample with click_sample_color.py rather than
+    # assuming this value still holds.
+    - { id: green,  color: "#05a150", label: "Green" }
+    - { id: red,    color: "#ef4444", label: "Red" }
+    - { id: yellow, color: "#eab308", label: "Yellow" }
+
+  # Starting positions in grid coordinates (col, row). Converted to arm mm.
+  # 'red' overridden with a raw x/y (was col:2,row:4 -> x=300.4; nudged to
+  # x=295 to correct the observed pick-point offset). y unchanged.
+  start_positions:
+    green:  { col: 2, row: 2 }
+    red:    { x: 310, y: -50.0 }
+    yellow: { col: 2, row: 6 }
+
+# ---------------------------------------------------------------------------
+# Slots - target positions, in GRID (col, row).
+# ---------------------------------------------------------------------------
+slots:
+  - { id: slot_1, label: "Slot 1", col: 5, row: 2 }
+  - { id: slot_2, label: "Slot 2", col: 5, row: 4 }
+  - { id: slot_3, label: "Slot 3", col: 5, row: 6 }
+
+# ---------------------------------------------------------------------------
+# Staging positions - temporary safe spots during re-sorting, in GRID.
+# Middle column, spread across rows; clear of blocks (col2) and slots (col5).
+# ---------------------------------------------------------------------------
+staging:
+  - { id: stage_1, label: "Stage 1", col: 3, row: 2 }
+  - { id: stage_2, label: "Stage 2", col: 3, row: 4 }
+  - { id: stage_3, label: "Stage 3", col: 3, row: 6 }
+
+# ---------------------------------------------------------------------------
+# Pick and place heights, in the ARM's Z frame (mm).
+# Table surface measured at z = -122. Grip just above it; lift well clear.
+# ---------------------------------------------------------------------------
+heights:
+  table_z: -122.0           # measured: tool tip touches table here
+  block_top_z: -100.0       # approx top of a duck sitting on the table
+  grip_z: -110.0            # height to close gripper (~12mm above table;
+                             # dropped further, was -102, originally -92)
+  lift_z: -20.0             # clearance height when carrying (well above table)
+  approach_z: -60.0         # hover height before lowering to grip
+  grid_top_z: -62.7         # measured via test_find_grid_height.py: the pink
+                             # grid platform sits ABOVE the table, so placing
+                             # into a grid cell must stop here, not at
+                             # grip_z/table_z (which would press into the
+                             # grid). Use as --place-z for
+                             # test_hover_place_in_grid.py.
+
+# ---------------------------------------------------------------------------
+# Home position - a safe elevated pose. In passthrough mode we command an XYZ
+# home instead of joint angles. Values in the arm's frame.
+# ---------------------------------------------------------------------------
+home:
+  # Joint home (used only in analytic/sim mode).
+  joints: { base: 0.0, shoulder: 80.0, elbow: -60.0, wrist: -90.0 }
+  # XYZ home for the real arm (safe elevated pose, tool up and forward).
+  xyz: { x: 250.0, y: 0.0, z: 100.0 }
+
+# ---------------------------------------------------------------------------
+# Stow position - retracted pose the arm moves to BEFORE the camera captures
+# a frame, so the arm's body doesn't occlude the board in view. Tune x/y/z
+# so the arm folds toward its own base, away from the board/camera's view.
+# Verified reachable at load time (see CellConfig.sanity_check).
+# ---------------------------------------------------------------------------
+stow:
+  # Rotated ~90 deg right from straight-ahead (x=150,y=0) to swing the base
+  # further out of the camera's view. In passthrough mode the base angle is
+  # atan2(y,x), so x~0 with negative y points the arm to the right.
+  xyz: { x: 5.0, y: -150.0, z: 200.0 }
+
+# ---------------------------------------------------------------------------
+# Operational limits
+# ---------------------------------------------------------------------------
+limits:
+  max_blocks_per_plan: 6
+  max_plan_seconds: 120
+  cooldown_after_sorts: 30
+  cooldown_seconds: 45
+  min_seconds_between_moves: 0.3
+
+# ---------------------------------------------------------------------------
+# Vision - camera + VLM duck detection (see vision/ and calibrate_grid.py).
+# Requires: OPENAI_API_KEY set (.env), and calibrate_grid.py already run once
+# for the mounted camera. Falls back to hardcoded cell.yaml positions if
+# use_camera is false or detection fails.
+# ---------------------------------------------------------------------------
+vision:
+  camera_height: 600.0
+  detection_confidence: 1.0
+  capture_dwell_s: 0.1
+  use_camera: false          # set true to detect duck positions live
+  camera_index: 1            # verified via vision/list_cameras.py
+  min_confidence: 0.6        # VLM detections below this are discarded
+  # The VLM's col/row is anchored at the physical black marker corner.
+  # grid.transform above was fit independently (arm measurements only) and
+  # may treat a DIFFERENT corner as (1,1) -- UNVERIFIED whether an offset is
+  # even needed; set to 0 until confirmed with a physical test. To
+  # calibrate: run test_pick_place_camera.py, note the VLM's reported
+  # c{col}r{row} (printed in logs) vs where the arm ACTUALLY lands
+  # (physically count cells from the marker), then set these so
+  # (vlm_col + marker_col_offset, vlm_row + marker_row_offset) equals the
+  # physically-observed landing cell.
+  marker_col_offset: 0
+  marker_row_offset: 0
+
+  # Fixed correction applied AFTER the pixel->arm homography, in the arm's
+  # world frame (mm). +y is LEFT, -y is RIGHT; +x is away from the base.
+  # Added after repeated real picks showed a consistent ~2cm miss to the
+  # left (i.e. the transform's raw output needs +20mm in y to compensate).
+  # NOTE: an earlier attempt at a fixed offset was reverted because
+  # test_pick_offset_check.py showed it wasn't consistent across the board
+  # at the time. Re-verify at a few different board positions if picks
+  # start missing again -- if the miss direction/magnitude varies by
+  # position, this should go back to 0 and the calibration itself
+  # (calibrate_pixel_to_arm_auto.py) is the better fix.
+  pixel_arm_offset_x: 0.0
+  pixel_arm_offset_y: 0.0

@@ -1,0 +1,10 @@
+﻿__pycache__/
+*.pyc
+venv/
+.venv/
+*.jpg
+*.jpeg
+*.png
+config/board_crop_backup_*.json
+config/pixel_arm_transform_backup_*.json
+.env
