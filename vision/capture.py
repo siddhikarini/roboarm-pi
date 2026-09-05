@@ -17,9 +17,15 @@ import time
 import cv2
 
 
-def capture_frame(index: int = 0, width: int = 1280, height: int = 720,
+def capture_frame(index: int | str = 0, width: int = 1280, height: int = 720,
                    retries: int = 6, warmup_timeout_s: float = 10.0) -> "cv2.Mat":
     """Grab one frame, requesting a higher resolution than the camera default.
+
+    index: an integer device index (local USB webcam), OR a URL string
+    (e.g. "http://192.168.0.149:8080/video" for a phone running an IP
+    camera app like IP Webcam) -- cv2.VideoCapture() accepts either
+    transparently. Used on the Pi where a Windows-only "Link to Windows"
+    phone bridge isn't available; the phone streams over the LAN instead.
 
     Many USB webcams default to 640x480, which is too coarse for the VLM to
     reliably read small per-cell "c{col}r{row}" labels on a 7x8 grid. Request
@@ -82,7 +88,10 @@ def capture_frame(index: int = 0, width: int = 1280, height: int = 720,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--index", type=int, default=1, help="camera device index")
+    ap.add_argument("--index", default="1",
+                     help="camera device index (integer, e.g. 0 or 1) OR a "
+                          "stream URL (e.g. http://192.168.0.149:8080/video "
+                          "for a phone running IP Webcam)")
     ap.add_argument("--out", default="capture.jpg", help="output image path")
     ap.add_argument("--warmup-timeout", type=float, default=10.0,
                      help="seconds to keep retrying for a non-black frame "
@@ -90,7 +99,14 @@ def main() -> None:
                           "cameras via Link to Windows)")
     args = ap.parse_args()
 
-    frame = capture_frame(args.index, warmup_timeout_s=args.warmup_timeout)
+    # Accept either an int index or a URL string -- try int first, fall
+    # back to the raw string if it's not a plain integer.
+    try:
+        source: int | str = int(args.index)
+    except ValueError:
+        source = args.index
+
+    frame = capture_frame(source, warmup_timeout_s=args.warmup_timeout)
     cv2.imwrite(args.out, frame)
     print(f"saved {args.out}  shape={frame.shape}")
 

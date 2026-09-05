@@ -123,8 +123,10 @@ def load_crop(path: Path | str | None = None,
     return tuple(payload["crop_rect"])
 
 
-def capture_board_frame(index: int):
+def capture_board_frame(index: int | str):
     """Capture a frame and crop it to the board using the saved calibration.
+
+    index: int device index OR a stream URL string (see capture.py).
 
     Raises if no board_crop calibration exists yet — run
     calibrate_board_crop.py once first.

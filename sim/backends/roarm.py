@@ -745,7 +745,11 @@ class RoArmBackend:
         from vision.color_detect import find_duck_centroid
         from vision.pixel_arm_transform import apply_transform, load_transform
 
-        index = int(vision_cfg.get("camera_index", 1))
+        raw_index = vision_cfg.get("camera_index", 1)
+        try:
+            index: int | str = int(raw_index)
+        except (TypeError, ValueError):
+            index = str(raw_index)  # e.g. an IP camera stream URL
         min_area = float(vision_cfg.get("min_duck_area", 1000.0))
 
         # Retract out of the camera's view before capturing, so the arm's own

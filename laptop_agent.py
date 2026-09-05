@@ -54,6 +54,19 @@ class LaptopAgent:
         self._stop = threading.Event()
         self._arm_connected = False
 
+    def _resolve_camera_index(self) -> int | str:
+        """cell.yaml's vision.camera_index as either an int (local USB
+        webcam device index) or a URL string (e.g. a phone running IP
+        Webcam, streamed over the LAN) -- see vision/capture.py. Needed on
+        the Pi, where a Windows-only "Link to Windows" phone bridge isn't
+        available.
+        """
+        raw = self.cfg.vision.get("camera_index", 1)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return str(raw)
+
     # -- broker setup ------------------------------------------------------ #
 
     def start(self) -> None:
@@ -62,13 +75,47 @@ class LaptopAgent:
         conn = self.cfg.connection or {}
         mqtt_cfg = conn.get("mqtt", {}) if isinstance(conn.get("mqtt"), dict) else {}
         host = mqtt_cfg.get("host") or os.environ.get("MQTT_HOST") or "localhost"
-        port = int(mqtt_cfg.get("port") or os.environ.get("MQTT_PORT") or 1883)
+        use_tls = bool(mqtt_cfg.get("use_tls", False))
+        default_port = 8883 if use_tls else 1883
+        port = int(mqtt_cfg.get("port") or os.environ.get("MQTT_PORT") or default_port)
         username = mqtt_cfg.get("username") or os.environ.get("MQTT_USERNAME")
         password = mqtt_cfg.get("password") or os.environ.get("MQTT_PASSWORD")
+        client_id = mqtt_cfg.get("client_id") or f"laptop-agent-{os.getpid()}"
 
-        client = mqtt.Client(client_id=f"laptop-agent-{os.getpid()}", clean_session=True)
-        if username:
+        # paho-mqtt >=2.0 defaults to CallbackAPIVersion.VERSION2, whose
+        # on_connect/on_message signatures differ (5 args, not 4) from what
+        # this code writes below -- silently mismatched callbacks don't
+        # crash, they just never fire (paho swallows the TypeError
+        # internally), which looked exactly like "connecting... then
+        # nothing" with no visible error. Pin VERSION1 explicitly so the
+        # existing 4-arg callback signatures actually get called.
+        client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            client_id=client_id, clean_session=True,
+        )
+
+        if use_tls:
+            # AWS IoT Core (and most managed MQTT brokers) authenticate via
+            # mutual TLS certs, NOT username/password. This was previously
+            # MISSING entirely from laptop_agent.py -- connect() was
+            # calling client.connect() plaintext against IoT Core's TLS-only
+            # port 8883, which just hangs forever with no error (the broker
+            # never completes a handshake with a non-TLS client). See
+            # sim/backends/mqtt_proxy.py's connect() for the EC2-side
+            # equivalent this mirrors.
+            ca_cert = mqtt_cfg.get("ca_cert")
+            cert_file = mqtt_cfg.get("cert_file")
+            key_file = mqtt_cfg.get("key_file")
+            if not (ca_cert and cert_file and key_file):
+                raise RuntimeError(
+                    "mqtt.use_tls is true but ca_cert/cert_file/key_file are "
+                    "not all set in cell.yaml connection.mqtt -- required for "
+                    "AWS IoT Core's mutual-TLS auth."
+                )
+            client.tls_set(ca_certs=ca_cert, certfile=cert_file, keyfile=key_file)
+        elif username:
             client.username_pw_set(username, password)
+
         client.on_connect = self._on_connect
         client.on_message = self._on_message
         # Last-will: if the agent drops, publish an offline state so EC2 knows.
@@ -134,6 +181,18 @@ class LaptopAgent:
             self._arm_connected = True
             return
 
+        # Every other op assumes connect() already ran (it initializes
+        # gripper limits, motion speed, etc. on the backend instance) --
+        # confirmed via a real crash (AttributeError: no _grip_min) when a
+        # "gripper" command arrived before any "connect" had been sent in
+        # this process's lifetime. Auto-connect here instead of crashing
+        # with a confusing internal error, so an out-of-order command from
+        # a client is still handled correctly.
+        if not self._arm_connected:
+            log.info("received '%s' before connect -- auto-connecting first", op)
+            self.backend.connect(self.cfg)
+            self._arm_connected = True
+
         if op == proto.OP_HOME:
             self.backend.home(self.cfg)
             return
@@ -171,7 +230,7 @@ class LaptopAgent:
             if duck is None:
                 raise ValueError(f"unknown color '{color}'. Options: {list(self.cfg.blocks)}")
 
-            camera_index = int(self.cfg.vision.get("camera_index", 1))
+            camera_index = self._resolve_camera_index()
             offset_x = float(self.cfg.vision.get("pixel_arm_offset_x", 0.0))
             offset_y = float(self.cfg.vision.get("pixel_arm_offset_y", 0.0))
 
