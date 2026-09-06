@@ -65,9 +65,15 @@ def detect_board_rect(frame, red_hex: str = "#ff0000", hue_tol: int = 15,
 
     # Combine all fragments with meaningful area (not tiny noise specks) into
     # one bounding box, instead of trusting a single "largest" contour.
+    # NOTE: 0.05 was too permissive -- confirmed via grid_place_detect.py's
+    # find_pink_grid_bbox hitting the exact same failure mode (a small,
+    # unrelated red/pink-hue fragment elsewhere in frame merging into the
+    # combined bbox and dragging it out past the real boundary on one
+    # side). Raised to 0.4 to only keep fragments genuinely comparable in
+    # size to the largest -- i.e. actually part of the same drawn line.
     areas = [cv2.contourArea(c) for c in contours]
     max_area = max(areas)
-    significant = [c for c, a in zip(contours, areas) if a >= max_area * 0.05]
+    significant = [c for c, a in zip(contours, areas) if a >= max_area * 0.4]
 
     all_points = np.vstack(significant)
     x, y, w, h = cv2.boundingRect(all_points)
