@@ -1,10 +1,10 @@
 {
   "crop_rect": [
-    380,
-    0,
-    901,
-    653
+    258,
+    24,
+    1460,
+    1066
   ],
-  "frame_height": 720,
-  "frame_width": 1280
+  "frame_height": 1080,
+  "frame_width": 1920
 }

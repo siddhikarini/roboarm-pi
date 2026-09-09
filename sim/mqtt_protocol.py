@@ -50,6 +50,11 @@ Command (robo/cmd), published by EC2:
       "cell_color": "#38846f",                # cfg.blocks color to pick,
                                                # and the target cell's own
                                                # background color
+      "placements": [                          # execute_kit_plan only:
+        {"color": "red", "cell": "A1"},        # ordered list of pick/place
+        {"color": "red", "cell": "A2"},        # steps. "color" must be a
+        {"color": "blue", "cell": "B1"},       # cfg.blocks id; "cell" a
+      ],                                        # named grid cell (e.g. "A1").
     }
 
 Result (robo/result), published by laptop:
@@ -103,6 +108,13 @@ DEFAULT_CMD_TIMEOUT_S = 20.0
 
 OP_CONNECT = "connect"
 OP_HOME = "home"
+# Runs the firmware's own MOVE_INIT (T:100) then glides to the configured
+# XYZ home pose -- distinct from OP_HOME, which only does the XYZ glide
+# (do_init=False) since re-running T:100 every time isn't wanted for
+# regular between-job homing. Use this op on demand (e.g. after power-on,
+# or to return the arm to its full init/rest pose) without changing
+# OP_HOME's default behavior.
+OP_INIT = "init"
 OP_MOVE_TO = "move_to"
 OP_GRIPPER = "gripper"
 OP_ESTOP = "estop"
@@ -115,6 +127,19 @@ OP_DETECT = "detect"
 # overloading OP_DETECT's result shape (list of {id,color,x,y} blocks) with
 # a different, unrelated shape (single pick_x/pick_y/place_x/place_y).
 OP_DETECT_PICK_PLACE = "detect_pick_place"
+# Multi-object "kit plan" -- one capture ("stow once"), resolves pick/place
+# coordinates for a whole ordered list of {color, cell} placements at once,
+# then executes them all sequentially. Distinct from OP_DETECT_PICK_PLACE
+# (single item, re-detects before every pick) -- see
+# vision/detect_pick_place.py:detect_kit_plan for why a single capture is
+# sufficient here (same-colored objects are interchangeable, so tracking
+# which specific one was picked isn't needed).
+OP_EXECUTE_KIT_PLAN = "execute_kit_plan"
+# Two-phase variant: detect returns coordinates to the cloud agent,
+# which can inspect/modify them, then calls execute_plan to run.
+# Placements include a 'seq' field for ordering.
+OP_DETECT_KIT_PLAN = "detect_kit_plan"
+OP_EXECUTE_PLAN    = "execute_plan"
 
 
 def new_cmd_id() -> str:

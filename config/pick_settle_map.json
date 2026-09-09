@@ -1,0 +1,102 @@
+{
+  "_comment": "Pick settle errors from baseline runs. IDW interpolation used at runtime.",
+  "model": null,
+  "points": [
+    {
+      "target_x": 360.4,
+      "target_y": 7.6,
+      "error_x": 0.0,
+      "error_y": -24.9
+    },
+    {
+      "target_x": 253.5,
+      "target_y": 1.3,
+      "error_x": 0.0,
+      "error_y": 11.3
+    },
+    {
+      "target_x": 366.1,
+      "target_y": -76.5,
+      "error_x": 0.0,
+      "error_y": 20.5
+    },
+    {
+      "target_x": 268.9,
+      "target_y": -85.1,
+      "error_x": 0.0,
+      "error_y": 14.0
+    },
+    {
+      "target_x": 358.1,
+      "target_y": 5.2,
+      "error_x": 0.0,
+      "error_y": -20.8
+    },
+    {
+      "target_x": 367.2,
+      "target_y": -77.8,
+      "error_x": 0.0,
+      "error_y": 17.1
+    },
+    {
+      "target_x": 274.7,
+      "target_y": -81.9,
+      "error_x": 0.0,
+      "error_y": 14.0
+    },
+    {
+      "target_x": 257.4,
+      "target_y": -1.2,
+      "error_x": 0.0,
+      "error_y": 12.1
+    },
+    {
+      "target_x": 359.8,
+      "target_y": 7.7,
+      "error_x": 0.0,
+      "error_y": -20.6
+    },
+    {
+      "target_x": 364.5,
+      "target_y": -80.5,
+      "error_x": 0.0,
+      "error_y": 16.8
+    },
+    {
+      "target_x": 266.8,
+      "target_y": -81.5,
+      "error_x": 0.0,
+      "error_y": 14.4
+    },
+    {
+      "target_x": 255.9,
+      "target_y": -2.6,
+      "error_x": 0.0,
+      "error_y": 12.6
+    },
+    {
+      "target_x": 357.3,
+      "target_y": 7.0,
+      "error_x": 0.0,
+      "error_y": -20.9
+    },
+    {
+      "target_x": 373.9,
+      "target_y": -77.9,
+      "error_x": 0.0,
+      "error_y": 16.1
+    },
+    {
+      "target_x": 267.9,
+      "target_y": -83.8,
+      "error_x": 0.0,
+      "error_y": 13.9
+    },
+    {
+      "target_x": 257.8,
+      "target_y": -2.4,
+      "error_x": 0.0,
+      "error_y": 11.8
+    }
+  ]
+}
