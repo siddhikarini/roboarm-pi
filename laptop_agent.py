@@ -505,21 +505,28 @@ class LaptopAgent:
             ordered = sorted(placements_raw, key=lambda p: p.get("seq", 0))
             place_z = float(self.cfg.heights.get("grid_top_z", self.cfg.heights["grip_z"]))
 
-            # Load corrections from most recent calibration run
+            # Load corrections from config/ (Pi-side) or most recent runs/ folder
             from pathlib import Path as _Path
             from correction import load_settle_maps, apply_corrections
-            runs_dir = _Path("runs")
-            run_candidates = sorted(
-                [d for d in runs_dir.iterdir()
-                 if d.is_dir() and (d / "pixel_arm_transform.json").exists()],
-                reverse=True,
-            ) if runs_dir.exists() else []
-            if run_candidates:
+            config_dir = _Path("config")
+            # Prefer config/ settle maps (copied from latest calibration)
+            if (config_dir / "pick_settle_map.json").exists():
                 pick_points, pick_model, _, _, place_cell_offsets = \
-                    load_settle_maps(run_candidates[0])
+                    load_settle_maps(config_dir)
             else:
-                pick_points, pick_model, place_cell_offsets = [], None, {}
-                log.warning("execute_plan: no calibration run found, running without corrections")
+                # Fall back to latest runs/ folder
+                runs_dir = _Path("runs")
+                run_candidates = sorted(
+                    [d for d in runs_dir.iterdir()
+                     if d.is_dir() and (d / "pixel_arm_transform.json").exists()],
+                    reverse=True,
+                ) if runs_dir.exists() else []
+                if run_candidates:
+                    pick_points, pick_model, _, _, place_cell_offsets = \
+                        load_settle_maps(run_candidates[0])
+                else:
+                    pick_points, pick_model, place_cell_offsets = [], None, {}
+                    log.warning("execute_plan: no settle maps found, running without corrections")
 
             completed = []
             for i, p in enumerate(ordered):
