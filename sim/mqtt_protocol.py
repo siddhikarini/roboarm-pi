@@ -142,6 +142,8 @@ OP_DETECT_KIT_PLAN = "detect_kit_plan"
 OP_EXECUTE_PLAN    = "execute_plan"
 # Single-placement variant: execute one block at a time (fits 30s timeout).
 OP_EXECUTE_SINGLE  = "execute_single_placement"
+# Capture image from Pi camera and return as base64 for VLM validation.
+OP_CAPTURE_IMAGE   = "capture_image"
 
 
 def new_cmd_id() -> str:

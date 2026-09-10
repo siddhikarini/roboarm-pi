@@ -39,6 +39,7 @@ from sim.backends.roarm import RoArmBackend
 from sim import mqtt_protocol as proto
 from execute_pick_place import run_pick_and_place
 from vision.detect_pick_place import detect_kit_plan, detect_pick_and_place
+import cv2
 
 log = logging.getLogger("laptop_agent")
 
@@ -506,6 +507,20 @@ class LaptopAgent:
                 })
             result["placements"] = out
             log.info("detect_kit_plan: returned %d placement(s) with coordinates", len(out))
+            return
+
+        if op == proto.OP_CAPTURE_IMAGE:
+            import base64
+            camera_index = self._resolve_camera_index()
+            from vision.capture import capture_frame
+            from vision.board_crop import apply_crop
+            import json as _json
+            crop = _json.load(open("config/board_crop.json"))
+            raw = capture_frame(camera_index)
+            frame = apply_crop(raw, tuple(crop["crop_rect"]))
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            result["image_b64"] = base64.b64encode(buf.tobytes()).decode("utf-8")
+            log.info("capture_image: captured %d bytes", len(buf))
             return
 
         if op == proto.OP_EXECUTE_SINGLE:
