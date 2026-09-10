@@ -253,6 +253,8 @@ class LaptopAgent:
         if op in (proto.OP_EXECUTE_KIT_PLAN, proto.OP_EXECUTE_PLAN):
             n = len(cmd.get("placements") or [])
             timeout_s = max(timeout_s, n * 60.0)
+        elif op == proto.OP_EXECUTE_SINGLE:
+            timeout_s = max(timeout_s, 60.0)  # single placement needs up to 60s
 
         done = threading.Event()
 
