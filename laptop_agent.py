@@ -96,6 +96,8 @@ class LaptopAgent:
         self._client = None
         self._stop = threading.Event()
         self._arm_connected = False
+        self._processed_ids: set = set()  # dedup: ignore re-delivered QoS 1 commands
+        self._MAX_PROCESSED = 200
 
     def _resolve_camera_index(self) -> int | str:
         """cell.yaml's vision.camera_index as either an int (local USB
@@ -197,6 +199,15 @@ class LaptopAgent:
 
         cmd_id = cmd.get("id")
         op = cmd.get("op")
+
+        # Deduplicate: ignore re-delivered QoS 1 messages
+        if cmd_id in self._processed_ids:
+            log.warning("duplicate cmd %s (%s) -- ignoring re-delivery", cmd_id, op)
+            return
+        self._processed_ids.add(cmd_id)
+        if len(self._processed_ids) > self._MAX_PROCESSED:
+            self._processed_ids = set(list(self._processed_ids)[-100:])
+
         log.info("cmd %s: %s", cmd_id, op)
 
         result = {"id": cmd_id, "ok": False}
