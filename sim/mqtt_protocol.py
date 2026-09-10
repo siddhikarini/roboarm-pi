@@ -140,6 +140,8 @@ OP_EXECUTE_KIT_PLAN = "execute_kit_plan"
 # Placements include a 'seq' field for ordering.
 OP_DETECT_KIT_PLAN = "detect_kit_plan"
 OP_EXECUTE_PLAN    = "execute_plan"
+# Single-placement variant: execute one block at a time (fits 30s timeout).
+OP_EXECUTE_SINGLE  = "execute_single_placement"
 
 
 def new_cmd_id() -> str:

@@ -506,6 +506,54 @@ class LaptopAgent:
             log.info("detect_kit_plan: returned %d placement(s) with coordinates", len(out))
             return
 
+        if op == proto.OP_EXECUTE_SINGLE:
+            p = cmd.get("placement")
+            if not p:
+                raise ValueError("execute_single_placement requires a 'placement' dict")
+
+            place_z = float(self.cfg.heights.get("grid_top_z", self.cfg.heights["grip_z"]))
+
+            from pathlib import Path as _Path
+            from correction import load_settle_maps, apply_corrections
+            config_dir = _Path("config")
+            if (config_dir / "pick_settle_map.json").exists():
+                pick_points, pick_model, _, _, place_cell_offsets = load_settle_maps(config_dir)
+            else:
+                pick_points, pick_model, place_cell_offsets = [], None, {}
+
+            raw_pick_x  = float(p["pick_x"])
+            raw_pick_y  = float(p["pick_y"])
+            raw_place_x = float(p["place_x"])
+            raw_place_y = float(p["place_y"])
+
+            pick_x, pick_y, place_x, place_y = apply_corrections(
+                raw_pick_x, raw_pick_y, raw_place_x, raw_place_y,
+                pick_points, pick_model, place_cell_offsets,
+            )
+
+            # Home before the first placement to ensure consistent arm configuration
+            if p.get("seq", 1) == 1:
+                log.info("execute_single_placement: homing before first placement")
+                self.backend.home(self.cfg)
+
+            log.info(
+                "execute_single_placement: %s -> %s pick=(%.1f,%.1f) place=(%.1f,%.1f)",
+                p.get("color","?"), p.get("cell","?"), pick_x, pick_y, place_x, place_y,
+            )
+            run_pick_and_place(
+                self.backend, self.cfg,
+                pick_x=pick_x, pick_y=pick_y,
+                place_x=place_x, place_y=place_y,
+                place_z=place_z,
+            )
+            result["completed"] = {
+                "color": p.get("color"),
+                "cell":  p.get("cell"),
+                "seq":   p.get("seq"),
+                "status": "ok",
+            }
+            return
+
         if op == proto.OP_EXECUTE_PLAN:
             # Execute a pre-resolved plan (coordinates provided by cloud agent).
             placements_raw = cmd.get("placements")
@@ -541,6 +589,10 @@ class LaptopAgent:
 
             completed = []
             for i, p in enumerate(ordered):
+                # Home before first placement for consistent arm configuration
+                if i == 0:
+                    log.info("execute_plan: homing before first placement")
+                    self.backend.home(self.cfg)
                 raw_pick_x  = float(p["pick_x"])
                 raw_pick_y  = float(p["pick_y"])
                 raw_place_x = float(p["place_x"])
